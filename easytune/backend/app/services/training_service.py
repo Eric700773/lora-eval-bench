@@ -22,7 +22,7 @@ from app.services.model_service import create_model_version_for_job
 
 
 VALID_MODEL_FAMILIES = {"qwen", "rwkv"}
-VALID_TEMPLATES = {"qwen", "rwkv", "default"}
+VALID_TEMPLATES = {"qwen", "qwen3_5", "qwen3_5_nothink", "rwkv", "default"}
 VALID_QWEN_FINETUNING_TYPES = {"lora", "qlora", "freeze", "full"}
 VALID_RWKV_FINETUNING_TYPES = {"lora", "qlora", "state", "miss", "disha", "adalora", "prefix", "full", "none"}
 VALID_BUDGETS = {"low", "balanced", "high"}
@@ -53,7 +53,10 @@ def create_training_job(db: Session, payload: TrainingJobCreate) -> TrainingJob:
     if payload.model_family not in VALID_MODEL_FAMILIES:
         raise HTTPException(status_code=400, detail="model_family must be qwen or rwkv.")
     if payload.template not in VALID_TEMPLATES:
-        raise HTTPException(status_code=400, detail="template must be qwen, rwkv or default.")
+        raise HTTPException(
+            status_code=400,
+            detail="template must be qwen, qwen3_5, qwen3_5_nothink, rwkv or default.",
+        )
     if payload.stage != "sft":
         raise HTTPException(status_code=400, detail="Only sft stage is supported in v1.")
     valid_finetuning_types = VALID_RWKV_FINETUNING_TYPES if payload.model_family == "rwkv" else VALID_QWEN_FINETUNING_TYPES
@@ -108,8 +111,13 @@ def mark_job_running(db: Session, job_id: int) -> TrainingJob:
     append_log(job.log_path, f"[{datetime.utcnow().isoformat()}] Job queued.")
     if runner:
         append_log(job.log_path, f"[preflight] Runner found: {runner['label']}")
+    elif os.getenv("EASYTUNE_ALLOW_MOCK_TRAINING", "false").lower() == "true":
+        append_log(job.log_path, f"[preflight] Runner not found for {job.model_family}; explicit mock mode enabled.")
     else:
-        append_log(job.log_path, f"[preflight] Runner not found for {job.model_family}; mock train will be used.")
+        message = f"Real training runner not found for {job.model_family}; mock training is disabled."
+        _update_job(db, job, status="failed", progress=0, error_message=message)
+        append_log(job.log_path, f"[preflight][ERROR] {message}")
+        raise HTTPException(status_code=400, detail=message)
     return job
 
 

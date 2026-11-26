@@ -9,6 +9,7 @@ from pathlib import Path
 from fastapi import APIRouter
 
 from app.database import APP_DIR, STORAGE_ROOT
+from app.services.qwen_runtime_service import qwen_runtime_preflight, runtime_config
 
 router = APIRouter(prefix="/api/health", tags=["health"])
 
@@ -137,4 +138,10 @@ def health() -> dict[str, object]:
             "rwkv_peft": python_dependency_summary(rwkv_python_executable(), RWKV_PEFT_MODULES, RWKV_PEFT_OPTIONAL_MODULES),
             "qwen_training": dependency_summary(QWEN_MODULES),
         },
+        "qwen_runtime": runtime_config(),
     }
+
+
+@router.get("/qwen-runtime")
+def qwen_runtime_health() -> dict[str, object]:
+    return qwen_runtime_preflight()
