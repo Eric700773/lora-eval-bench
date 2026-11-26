@@ -1,0 +1,49 @@
+{
+  "schema_version": 1,
+  "status": "completed",
+  "mock": false,
+  "runtime": {
+    "gpu": "NVIDIA GeForce RTX 4060 Laptop GPU",
+    "python": "3.12",
+    "torch": "2.10.0+cu126",
+    "cuda_runtime": "12.6",
+    "transformers": "5.9.0",
+    "peft": "0.21.3",
+    "bitsandbytes": "0.50.2"
+  },
+  "model": {
+    "name": "Qwen3.5-2B",
+    "source": "local BF16 weights",
+    "quantization": "NF4 4-bit"
+  },
+  "data": {
+    "samples": 6,
+    "categories": {
+      "math_reasoning": 2,
+      "json_instruction": 2,
+      "code_sandbox": 2
+    }
+  },
+  "optimization": {
+    "epochs": 1,
+    "optimizer_steps": 6,
+    "lora_rank": 8,
+    "max_length": 512,
+    "learning_rate": 0.0002,
+    "loss_first": 5.30084753036499,
+    "loss_last": 0.33306095004081726,
+    "loss_mean": 1.8746534635623295
+  },
+  "resources": {
+    "peak_gpu_memory_bytes": 3959631360,
+    "peak_gpu_memory_gib": 3.69,
+    "elapsed_seconds": 8.271
+  },
+  "artifact": {
+    "format": "PEFT LoRA safetensors",
+    "adapter_model_bytes": 2956152,
+    "validated_non_empty": true,
+    "published_in_repository": false
+  },
+  "claim_boundary": "This report proves a real six-step NF4 QLoRA training run and adapter serialization. It does not prove statistically significant generalization."
+}

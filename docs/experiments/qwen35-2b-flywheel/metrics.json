@@ -1,0 +1,99 @@
+{
+  "schema_version": 1,
+  "experiment": "qwen35-2b-evaluation-flywheel",
+  "environment": {
+    "gpu": "NVIDIA GeForce RTX 4060 Laptop GPU",
+    "gpu_memory_gb": 8,
+    "python": "3.12",
+    "torch": "2.10.0+cu126",
+    "cuda_runtime": "12.6",
+    "transformers": "5.9.0",
+    "peft": "0.21.3",
+    "bitsandbytes": "0.50.2",
+    "base_model": "Qwen3.5-2B local BF16 weights",
+    "synthesis_model": "deepseek-v4-pro"
+  },
+  "data": {
+    "benchmark_samples": 30,
+    "clean_samples": 28,
+    "contaminated_samples": 2,
+    "synthesized_training_samples": 6,
+    "categories": [
+      "math_reasoning",
+      "json_instruction",
+      "code_sandbox"
+    ]
+  },
+  "training": {
+    "mock": false,
+    "quantization": "NF4 4-bit",
+    "epochs": 1,
+    "optimizer_steps": 6,
+    "lora_rank": 8,
+    "max_length": 512,
+    "learning_rate": 0.0002,
+    "loss_first": 5.30084753036499,
+    "loss_last": 0.33306095004081726,
+    "loss_mean": 1.8746534635623295,
+    "peak_gpu_memory_gib": 3.69,
+    "elapsed_seconds": 8.271,
+    "adapter_model_bytes": 2956152
+  },
+  "original": {
+    "baseline_clean_pass_at_1": 0.8929,
+    "post_clean_pass_at_1": 0.9286,
+    "clean_delta": 0.0357,
+    "baseline_clean_ci_95": [0.7857, 1.0],
+    "post_clean_ci_95": [0.8214, 1.0],
+    "baseline_raw_pass_at_1": 0.9,
+    "post_raw_pass_at_1": 0.9,
+    "raw_delta": 0.0,
+    "category_clean_deltas": {
+      "math_reasoning": 0.1111,
+      "json_instruction": 0.0,
+      "code_sandbox": 0.0
+    },
+    "paired_clean_transitions": {
+      "improved": 2,
+      "regressed": 1,
+      "unchanged_pass": 24,
+      "unchanged_fail": 1
+    }
+  },
+  "dynamic": {
+    "baseline_clean_pass_at_1": 0.8214,
+    "post_clean_pass_at_1": 0.8571,
+    "clean_delta": 0.0357,
+    "baseline_clean_ci_95": [0.6786, 0.9643],
+    "post_clean_ci_95": [0.75, 0.9643],
+    "baseline_raw_pass_at_1": 0.8,
+    "post_raw_pass_at_1": 0.8333,
+    "raw_delta": 0.0333,
+    "category_clean_deltas": {
+      "math_reasoning": -0.1111,
+      "json_instruction": 0.0,
+      "code_sandbox": 0.2
+    },
+    "paired_clean_transitions": {
+      "improved": 2,
+      "regressed": 1,
+      "unchanged_pass": 22,
+      "unchanged_fail": 3
+    }
+  },
+  "decontamination_calibration": {
+    "total": 36,
+    "true_positive": 2,
+    "false_negative": 0,
+    "false_positive": 0,
+    "true_negative": 34,
+    "precision": 1.0,
+    "recall": 1.0
+  },
+  "reproducibility": {
+    "evaluation_parameters_matched": true,
+    "clean_subset_matched": true,
+    "mock_training_used": false
+  },
+  "claim_boundary": "Small-sample engineering validation only; confidence intervals overlap and no statistically significant general capability improvement is claimed."
+}
