@@ -2,12 +2,15 @@
 
 EasyTune 是围绕现有微调框架的产品化控制台。推荐部署方式是前后端分离：前端可以部署到阿里云等公网服务器，后端部署在本机 GPU 机器上，负责数据、训练、推理和模型文件访问。
 
-当前 MVP 跑通这条链路：
+当前已在 RTX 4060 8GB、Python 3.12 和本地 Qwen3.5-2B 上跑通无 Mock 链路：
 
 ```text
-Dashboard -> Dataset -> Create Fine-tune -> Training Monitor
--> Evaluation -> Chat Playground -> Model Registry -> Deploy / Inference
+Dataset upload -> decontaminated benchmark -> dynamic perturbation
+-> clean badcase attribution -> DeepSeek synthesis and review
+-> NF4 QLoRA -> adapter regression -> JSON/Markdown report
 ```
+
+实验性平台能力包括原始/去污染分数、Bootstrap 95% CI、能力切片、配对动态变体、合成数据反污染、真实 adapter 注册与同口径回归。当前仓库中的 30 题、6 条合成样本和 1 epoch 训练用于端到端工程验证，不代表统计显著的通用能力提升。
 
 ## 模型方向
 
@@ -67,6 +70,70 @@ RWKV-PEFT 默认仍可使用 DeepSpeed fused optimizer；小模型 smoke 或不�
 ```bash
 curl http://localhost:8000/api/health
 ```
+
+## Qwen3.5 评测飞轮
+
+当前验证配置：
+
+```text
+Windows backend: Python 3.12
+WSL GPU worker: PyTorch 2.10.0+cu126 / Transformers 5.9.0 / PEFT 0.21.3
+GPU: NVIDIA GeForce RTX 4060 Laptop GPU 8GB
+Base model: D:\interview\local-llm-validation\models\qwen3.5-2b-bf16
+Synthesis model: DeepSeek official deepseek-v4-pro
+```
+
+先启动 WSL GPU worker：
+
+```powershell
+wsl.exe -d Ubuntu -- /mnt/d/interview/local-llm-validation/.venv-transformers/bin/python `
+  /mnt/c/Users/Eric/lora-eval-bench/easytune/backend/app/workers/qwen_wsl_worker.py `
+  --model-path /mnt/d/interview/local-llm-validation/models/qwen3.5-2b-bf16 `
+  --host 0.0.0.0 --port 8011
+```
+
+正式数据合成需要在本机 User 环境变量中配置：
+
+```text
+EASYTUNE_SYNTHESIS_BASE_URL=https://api.deepseek.com
+EASYTUNE_SYNTHESIS_API_KEY=<DeepSeek API Key>
+EASYTUNE_SYNTHESIS_MODEL=deepseek-v4-pro
+EASYTUNE_REQUIRE_EXTERNAL_SYNTHESIS=true
+```
+
+API Key 不应写入仓库。后端提供以下安全预检：
+
+```text
+GET  /api/flywheel/synthesis/config
+GET  /api/flywheel/synthesis/models
+POST /api/flywheel/synthesis/test
+```
+
+验证流程：
+
+1. 上传 Benchmark 和参考训练集。
+2. `POST /api/benchmarks/runs` 运行原题和动态变体基线。
+3. `POST /api/flywheel/analyze-and-synthesize` 进行归因、DeepSeek 合成、质量门禁和反污染。
+4. `POST /api/flywheel/{iteration_id}/train` 执行真实 NF4 QLoRA。
+5. `POST /api/flywheel/{iteration_id}/regression-eval` 使用真实 adapter 重跑同口径回归。
+6. `POST /api/flywheel/{iteration_id}/report` 输出 JSON 和 Markdown 报告。
+
+本次验证产物：
+
+```text
+Baseline original: Run 2
+Baseline dynamic: Run 3
+Adapter original regression: Run 4
+Adapter dynamic regression: Run 5
+Flywheel iteration: 8
+Training job: 1
+ModelVersion: 1
+Synthesized dataset: 12
+Report: app/storage/reports/flywheel_iteration_8.{json,md}
+```
+
+结果摘要：原题 clean Pass@1 `0.8929 -> 0.9286`，动态变体 clean Pass@1 `0.8214 -> 0.8571`。两组 95% CI 均有明显重叠，因此只能声明观察到小样本提升，不能声明统计显著。
+
 
 可选安全配置：
 
@@ -146,7 +213,7 @@ docker compose up --build
 | Dataset | 上传 JSONL/CSV、格式检查、样本预览、train/valid 切分、错误样本提示 |
 | Create Fine-tune | base model、训练方式、RWKV-PEFT 参数、模板选择、epoch/lr/batch/output |
 | Training Monitor | 任务进度、日志、命令、配置、输出目录，后续接 loss 曲线和停止/恢复 |
-| Evaluation | benchmark、自定义测试集、base vs finetuned 对比入口 |
+| Evaluation | 去污染 benchmark、动态变体、Badcase、飞轮状态、base vs adapter 回归和报告 |
 | Chat Playground | 调用本机推理后端，做问答对比 |
 | Model Registry | checkpoint、adapter、export、版本说明 |
 | Deploy / Inference | 前端 API 地址、后端健康、vLLM/Ollama/Transformers/RWKV Lightning 配置 |
@@ -158,7 +225,7 @@ docker compose up --build
 3. 点击「转换」，生成 `storage/llamafactory_data/dataset_{id}.jsonl` 和 `dataset_info.json`。
 4. 进入「创建训练任务」，选择已转换数据集，选择 `qwen` 或 `rwkv`。
 5. 提交后查看任务详情页，可见 `command`、`config_path`、`log_path`、`output_dir`。
-6. 点击启动。Qwen 没有对应 runner 时会进入 mock train；RWKV 如果检测到内置 RWKV-PEFT 但依赖缺失，会先报清楚缺哪个模块，避免误以为真实训练已经开始。
+6. 点击启动。正式模式找不到真实 runner 时会直接失败，不会静默进入 Mock；仅显式设置 `EASYTUNE_ALLOW_MOCK_TRAINING=true` 才允许测试用 Mock。
 7. 训练完成后自动生成 ModelVersion、export manifest 和 `storage/registry/model_versions.json`。RWKV-PEFT 的 `rwkv-*.pth` 和同级 `job_x-adapter/` 目录会被识别为模型产物。
 8. 进入「人工验收」，选择模型版本；可手填实际答案，也可在配置推理服务后生成实际答案并保存人工评测记录。
 

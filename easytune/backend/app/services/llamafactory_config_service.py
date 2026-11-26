@@ -16,7 +16,7 @@ BUDGET_PRESETS = {
     "low": {
         "num_train_epochs": 1,
         "lora_rank": 8,
-        "cutoff_len": 2048,
+        "cutoff_len": 512,
         "learning_rate": 2.0e-4,
         "per_device_train_batch_size": 1,
         "gradient_accumulation_steps": 8,
@@ -111,7 +111,7 @@ def _base_training_config(job: TrainingJob, dataset: Dataset, preset: dict, outp
         "model_name_or_path": job.base_model,
         "stage": job.stage,
         "do_train": True,
-        "finetuning_type": job.finetuning_type,
+        "finetuning_type": "lora" if job.finetuning_type == "qlora" else job.finetuning_type,
         "dataset": dataset_name(dataset.id),
         "dataset_dir": str((STORAGE_ROOT / "llamafactory_data").resolve()),
         "cutoff_len": preset["cutoff_len"],

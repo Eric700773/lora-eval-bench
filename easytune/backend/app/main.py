@@ -6,7 +6,7 @@ from fastapi.requests import Request
 from fastapi.responses import JSONResponse
 
 from app.database import init_db
-from app.routers import datasets, health, model_versions, training_jobs, validation
+from app.routers import datasets, health, model_versions, runtime_smoke, training_jobs, validation,evaluation,flywheel
 
 
 app = FastAPI(title="EasyTune API", version="0.1.0")
@@ -47,7 +47,9 @@ app.include_router(datasets.router)
 app.include_router(training_jobs.router)
 app.include_router(model_versions.router)
 app.include_router(validation.router)
-
+app.include_router(evaluation.router)
+app.include_router(flywheel.router)
+app.include_router(runtime_smoke.router)
 
 @app.get("/")
 def root() -> dict[str, object]:

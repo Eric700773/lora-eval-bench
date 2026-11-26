@@ -2,6 +2,74 @@ const DEFAULT_API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://127
 const API_BASE_STORAGE_KEY = "easytune_api_base_url";
 const API_TOKEN_STORAGE_KEY = "easytune_api_token";
 
+export type BenchmarkMetrics = {
+  clean_decontaminated?: { total_samples: number; pass_at_1: number; ci_95: number[] };
+  raw_unfiltered?: { total_samples: number; pass_at_1: number; ci_95: number[] };
+  contamination_inflation?: number;
+  by_category_clean?: Record<string, { total: number; passed: number; pass_at_1: number }>;
+  variant_mode?: string;
+  elapsed_seconds?: number;
+};
+
+export type BenchmarkRun = {
+  id: number;
+  name: string;
+  model_version_id: number | null;
+  base_model: string;
+  adapter_path: string | null;
+  benchmark_dataset_id: number;
+  reference_train_dataset_id: number | null;
+  contaminated_count: number;
+  use_dynamic_perturbation: number;
+  config_hash: string;
+  metrics_json: BenchmarkMetrics | null;
+  status: string;
+  error_message: string | null;
+  created_at: string;
+};
+
+export type FlywheelIteration = {
+  id: number;
+  name: string;
+  baseline_run_id: number;
+  synthesized_dataset_id: number | null;
+  training_job_id: number | null;
+  post_eval_run_id: number | null;
+  status: string;
+  attribution_summary_json: Record<string, unknown> | null;
+  gain_report_json: {
+    baseline_pass_at_1?: number;
+    post_pass_at_1?: number;
+    net_gain_pass_at_1?: number;
+    baseline_ci_95?: number[];
+    post_ci_95?: number[];
+    category_deltas?: Record<string, number>;
+    config_matched?: boolean;
+    clean_subset_matched?: boolean;
+    model_version_id?: number;
+  } | null;
+  created_at: string;
+};
+
+export type SynthesisConfig = {
+  configured: boolean;
+  base_url: string | null;
+  model: string | null;
+  api_key_set: boolean;
+  require_external: boolean;
+};
+
+export type QwenRuntime = {
+  available: boolean;
+  python: string;
+  torch: string;
+  torch_cuda: string;
+  transformers: string;
+  gpu: string;
+  model_type: string;
+  model_path: string;
+  runtime_backend: string;
+};
 export type Dataset = {
   id: number;
   name: string;
