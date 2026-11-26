@@ -1,0 +1,27 @@
+[
+  {
+    "instruction": "某仓库原有货物 240 箱，第一天运出总数的 1/4，第二天又运进剩余货物的 20%，请问现在仓库共有多少箱货物？只需在最后给出数字。",
+    "input": "",
+    "output": "216"
+  },
+  {
+    "instruction": "提取实体并严格仅输出合法 JSON（不要 Markdown 解释），必须包含 keys: \"person\", \"city\", \"role\"。文本：张伟目前在上海担任高级算法工程师。",
+    "input": "",
+    "output": "{\"person\": \"张伟\", \"city\": \"上海\", \"role\": \"高级算法工程师\"}"
+  },
+  {
+    "instruction": "仓库里原本存放着货物240箱，第一天运走了全部的1/4，第二天再运进剩下货物的20%，现在仓库一共有多少箱货物？",
+    "input": "",
+    "output": "216"
+  },
+  {
+    "instruction": "请解释什么是过拟合以及如何缓解。",
+    "input": "",
+    "output": "过拟合是指模型在训练集上表现极好但在未见测试集上泛化能力下降。"
+  },
+  {
+    "instruction": "用 Python 写一个快速排序函数。",
+    "input": "",
+    "output": "def quicksort(arr):\n    if len(arr) <= 1: return arr\n    pivot = arr[len(arr)//2]\n    return quicksort([x for x in arr if x < pivot]) + [x for x in arr if x == pivot] + quicksort([x for x in arr if x > pivot])"
+  }
+]
