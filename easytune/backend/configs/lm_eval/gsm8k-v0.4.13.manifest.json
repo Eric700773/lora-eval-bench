@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "python": "3.12.13",
+  "platform": "Linux-6.18.40.1-microsoft-standard-WSL2-x86_64-with-glibc2.43",
+  "framework": "lm_eval",
+  "framework_package": "lm-eval",
+  "framework_version": "0.4.13",
+  "framework_tag": "v0.4.13",
+  "framework_commit": "ddd67220430a2470529f25fd5c05a576ca1057a0",
+  "task": "gsm8k",
+  "task_config_source": "lm_eval/tasks/gsm8k/gsm8k.yaml",
+  "task_config_sha256": "82eb1780b263bc040729032b3e076990c7933f42163c91e359f38820dd1d8833",
+  "dataset": "openai/gsm8k",
+  "dataset_name": "main",
+  "dataset_revision": "740312add88f781978c0658806c59bc2815b9866",
+  "dataset_snapshot_verified": true,
+  "splits": {
+    "train": {
+      "rows": 7473,
+      "fingerprint": "5e851a69d4b5cbcc",
+      "columns": [
+        "question",
+        "answer"
+      ]
+    },
+    "test": {
+      "rows": 1319,
+      "fingerprint": "978d5a0bffccb5c2",
+      "columns": [
+        "question",
+        "answer"
+      ]
+    }
+  },
+  "packages_lock": "requirements-lm-eval-0.4.13.lock.txt"
+}

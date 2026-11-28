@@ -1,0 +1,58 @@
+{
+  "evidence_type": "full_benchmark_evaluation",
+  "publishable_benchmark_score": true,
+  "framework": {
+    "name": "lm-eval",
+    "version": "0.4.13",
+    "commit": "ddd67220430a2470529f25fd5c05a576ca1057a0"
+  },
+  "task": {
+    "name": "gsm8k",
+    "metadata_version": "3.0",
+    "config_sha256": "82eb1780b263bc040729032b3e076990c7933f42163c91e359f38820dd1d8833",
+    "split": "test",
+    "few_shot": 5,
+    "limit": null,
+    "effective_samples": 1319
+  },
+  "dataset": {
+    "name": "openai/gsm8k",
+    "config": "main",
+    "revision": "740312add88f781978c0658806c59bc2815b9866",
+    "test_rows": 1319,
+    "test_fingerprint": "978d5a0bffccb5c2"
+  },
+  "generation": {
+    "do_sample": false,
+    "temperature": 0.0,
+    "max_generation_tokens": 512,
+    "seed": [42, 42, 42, 42],
+    "batch_size": 1,
+    "quantization": "NF4 4-bit",
+    "thinking": false
+  },
+  "results": {
+    "strict_match": 0.489764973464746,
+    "strict_match_stderr": 0.013769598923012397,
+    "flexible_extract": 0.6307808946171342,
+    "flexible_extract_stderr": 0.013293019538066239,
+    "strict_failures": 673
+  },
+  "integrity": {
+    "status": "passed",
+    "engineering_failures": 0,
+    "evidence_items": 1319,
+    "aligned_items": 1319,
+    "unmatched_items": 0,
+    "unused_evidence_files": 0,
+    "truncated_items": 0,
+    "nested_template_items": 0,
+    "repetition_diagnostic_items": 28,
+    "strict_metric_recomputed": 0.489764973464746
+  },
+  "runtime": {
+    "elapsed_seconds": 9973.344,
+    "response_cache_enabled": true,
+    "resumable": true
+  }
+}

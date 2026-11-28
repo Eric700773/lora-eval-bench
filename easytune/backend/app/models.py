@@ -94,6 +94,14 @@ class BenchmarkRun(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
+    framework: Mapped[str] = mapped_column(String(32), nullable=False, default="custom")
+    task_name: Mapped[str] = mapped_column(String(255), nullable=False, default="custom_dataset")
+    benchmark_spec_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    run_manifest_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    gate_report_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    progress_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    raw_result_path: Mapped[str | None] = mapped_column(Text, nullable=True)
+    normalized_result_path: Mapped[str | None] = mapped_column(Text, nullable=True)
     # 待测模型：可关联微调后的 model_version_id，也可直接填底座模型路径（如 Qwen/Qwen3.5-2B）做基线评测
     model_version_id: Mapped[int | None] = mapped_column(ForeignKey("model_versions.id"), nullable=True)
     base_model: Mapped[str] = mapped_column(Text, nullable=False)
@@ -129,6 +137,13 @@ class BenchmarkItemResult(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     benchmark_run_id: Mapped[int] = mapped_column(ForeignKey("benchmark_runs.id"), nullable=False, index=True)
     sample_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    framework_sample_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    source_record_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    request_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    model_input_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    raw_output_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    parsed_output_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    evidence_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     category: Mapped[str] = mapped_column(String(64), nullable=False, default="general")
 
     prompt: Mapped[str] = mapped_column(Text, nullable=False)

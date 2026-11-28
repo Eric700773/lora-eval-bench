@@ -348,6 +348,24 @@ def execute_benchmark_run(db: Session, run_id: int) -> BenchmarkRun:
             item_record = BenchmarkItemResult(
                 benchmark_run_id=run.id,
                 sample_index=idx,
+                framework_sample_id=str(row.get("id") or row.get("sample_id") or idx),
+                source_record_json=row,
+                request_json={
+                    "request_type": "custom_generate",
+                    "prompt": actual_prompt,
+                    "verifier_type": verifier_type,
+                    "max_new_tokens": int(cfg.get("max_new_tokens", 1024)),
+                    "temperature": float(cfg.get("temperature", 0.0)),
+                },
+                model_input_json={
+                    "messages": [{"role": "user", "content": actual_prompt}],
+                },
+                raw_output_json={"rollouts": rollouts},
+                parsed_output_json=first_check,
+                evidence_json={
+                    "capture_level": "application_prompt_and_decoded_output",
+                    "contamination": contam_info,
+                },
                 category=category,
                 prompt=prompt,
                 perturbed_prompt=perturbed_prompt,

@@ -47,13 +47,41 @@ def init_db() -> None:
 
 def ensure_schema_columns() -> None:
     inspector = inspect(engine)
-    if "training_jobs" not in inspector.get_table_names():
-        return
-
-    training_job_columns = {column["name"] for column in inspector.get_columns("training_jobs")}
-    if "extra_config_json" not in training_job_columns:
+    table_names = set(inspector.get_table_names())
+    column_definitions: dict[str, dict[str, str]] = {
+        "training_jobs": {
+            "extra_config_json": "JSON",
+        },
+        "benchmark_runs": {
+            "framework": "VARCHAR(32) NOT NULL DEFAULT 'custom'",
+            "task_name": "VARCHAR(255) NOT NULL DEFAULT 'custom_dataset'",
+            "benchmark_spec_json": "JSON",
+            "run_manifest_json": "JSON",
+            "gate_report_json": "JSON",
+            "progress_json": "JSON",
+            "raw_result_path": "TEXT",
+            "normalized_result_path": "TEXT",
+        },
+        "benchmark_item_results": {
+            "framework_sample_id": "VARCHAR(255)",
+            "source_record_json": "JSON",
+            "request_json": "JSON",
+            "model_input_json": "JSON",
+            "raw_output_json": "JSON",
+            "parsed_output_json": "JSON",
+            "evidence_json": "JSON",
+        },
+    }
+    for table_name, definitions in column_definitions.items():
+        if table_name not in table_names:
+            continue
+        existing = {column["name"] for column in inspector.get_columns(table_name)}
+        missing = {name: sql_type for name, sql_type in definitions.items() if name not in existing}
+        if not missing:
+            continue
         with engine.begin() as connection:
-            connection.execute(text("ALTER TABLE training_jobs ADD COLUMN extra_config_json JSON"))
+            for column_name, sql_type in missing.items():
+                connection.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {sql_type}"))
 
 
 def get_db() -> Generator[Session, None, None]:

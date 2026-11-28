@@ -11,12 +11,13 @@ from uuid import uuid4
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
+from app.benchmarks.registry import get_benchmark_runner
 from app.database import STORAGE_ROOT
 from app.models import BenchmarkItemResult, BenchmarkRun, Dataset, FlywheelIteration, ModelVersion, TrainingJob
 from app.schemas import TrainingJobCreate
 from app.services.dataset_service import convert_dataset
 from app.services.decontamination_service import check_sample_contamination
-from app.services.eval_harness_service import build_config_snapshot, execute_benchmark_run
+from app.services.eval_harness_service import build_config_snapshot
 from app.services.qwen_runtime_service import release_qwen_runtime, run_qlora_training, run_single_inference_smoke
 from app.services.model_service import create_model_version_for_job
 from app.services.training_service import create_training_job
@@ -229,6 +230,13 @@ def analyze_badcases_and_synthesize(
     run = db.get(BenchmarkRun, baseline_run_id)
     if not run or run.status != "completed":
         raise HTTPException(status_code=400, detail="Baseline BenchmarkRun must be completed first.")
+    benchmark_dataset = db.get(Dataset, run.benchmark_dataset_id)
+    dataset_role = (benchmark_dataset.report_json or {}).get("role") if benchmark_dataset else None
+    if run.framework == "lm_eval" and dataset_role == "official_benchmark":
+        raise HTTPException(
+            status_code=400,
+            detail="Official benchmark test Gate is analysis-only and cannot enter the training flywheel. Use a separate discovery/dev dataset for synthesis.",
+        )
 
     items = (
         db.query(BenchmarkItemResult)
@@ -462,6 +470,8 @@ def run_post_training_regression_eval(
 
     post_run = BenchmarkRun(
         name=f"[Regression] {base_run.name} -> {mv.name}",
+        framework=base_run.framework,
+        task_name=base_run.task_name,
         model_version_id=mv.id,
         base_model=mv.base_model,
         adapter_path=mv.adapter_path,
@@ -478,7 +488,7 @@ def run_post_training_regression_eval(
     db.commit()
     db.refresh(post_run)
 
-    completed_post = execute_benchmark_run(db, post_run.id)
+    completed_post = get_benchmark_runner(base_run.framework).run(db, post_run.id)
 
     b_clean = (base_run.metrics_json or {}).get("clean_decontaminated", {})
     p_clean = (completed_post.metrics_json or {}).get("clean_decontaminated", {})
