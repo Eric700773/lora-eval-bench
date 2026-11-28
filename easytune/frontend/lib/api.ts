@@ -9,11 +9,51 @@ export type BenchmarkMetrics = {
   by_category_clean?: Record<string, { total: number; passed: number; pass_at_1: number }>;
   variant_mode?: string;
   elapsed_seconds?: number;
+  framework_results?: Record<string, Record<string, number | string>>;
+  n_samples?: Record<string, { original: number; effective: number }>;
+  versions?: Record<string, number | string>;
+  n_shot?: Record<string, number>;
+  task_hashes?: Record<string, string>;
+  lm_eval_version?: string;
+};
+
+export type GateCheck = {
+  name: string;
+  status: "passed" | "failed" | "not_run";
+  detail: string | null;
+  evidence: Record<string, unknown>;
+};
+
+export type IntegrityGateReport = {
+  status: "passed" | "failed" | "not_run";
+  checks: GateCheck[];
+  infrastructure_errors: string[];
+  model_failures: number;
+  engineering_failures: number;
 };
 
 export type BenchmarkRun = {
   id: number;
   name: string;
+  framework: string;
+  task_name: string;
+  benchmark_spec_json: Record<string, unknown> | null;
+  run_manifest_json: Record<string, unknown> | null;
+  gate_report_json: IntegrityGateReport | null;
+  progress_json: {
+    mode?: string;
+    job_id?: string;
+    worker_status?: string;
+    expected_items?: number;
+    completed_requests?: number;
+    percent?: number;
+    elapsed_seconds?: number;
+    attempt?: number;
+    resumable?: boolean;
+    last_error?: string;
+  } | null;
+  raw_result_path: string | null;
+  normalized_result_path: string | null;
   model_version_id: number | null;
   base_model: string;
   adapter_path: string | null;
@@ -26,6 +66,92 @@ export type BenchmarkRun = {
   status: string;
   error_message: string | null;
   created_at: string;
+};
+
+export type NormalizedBenchmarkItem = {
+  sample_id: string;
+  sample_index: number;
+  category: string;
+  source_record: { question?: string; answer?: string } & Record<string, unknown>;
+  framework_request: Record<string, unknown>;
+  model_input: {
+    messages: Array<{ role: string; content: string }>;
+    rendered_prompt: string | null;
+    rendered_prompt_sha256: string | null;
+    chat_template_sha256: string | null;
+    prompt_tokens: number | null;
+    truncated: boolean | null;
+    nested_chat_template_detected: boolean | null;
+    render_token_roundtrip_matched: boolean | null;
+    input_ids_sha256: string | null;
+    input_ids: number[] | null;
+  };
+  raw_output: { response?: string; worker_raw_generated_text?: string } & Record<string, unknown>;
+  parsed_output: unknown;
+  reference: unknown;
+  score: number;
+  passed: boolean;
+  error_type: string | null;
+  error_reason: string | null;
+  evidence: {
+    finish_reason?: string;
+    response_content_matched?: boolean;
+    worker_evidence_status?: string;
+    worker_request_id?: string;
+    filters?: Record<string, unknown>;
+  } & Record<string, unknown>;
+};
+
+export type NormalizedBenchmarkRun = {
+  schema_version: number;
+  spec: {
+    framework: string;
+    framework_version: string | null;
+    framework_revision: string | null;
+    task_name: string;
+    task_version: string | null;
+    dataset_revision: string | null;
+    split: string | null;
+    few_shot: number;
+    limit: number | null;
+    mode: string;
+    model_id: string;
+    generation: Record<string, unknown>;
+    task_config: Record<string, unknown>;
+    runner_config: Record<string, unknown>;
+  };
+  manifest: Record<string, unknown>;
+  gate_report: IntegrityGateReport;
+  metrics: BenchmarkMetrics;
+  items: NormalizedBenchmarkItem[];
+  raw_result_path: string | null;
+};
+
+export type BenchmarkItemRecord = {
+  id: number;
+  benchmark_run_id: number;
+  sample_index: number;
+  framework_sample_id: string | null;
+  category: string;
+  prompt: string;
+  expected_answer: string | null;
+  rollouts_json: string[];
+  score: number;
+  is_passed: number;
+  error_tag: string | null;
+  error_reason: string | null;
+  request_json: Record<string, unknown> | null;
+  model_input_json: Record<string, unknown> | null;
+  raw_output_json: Record<string, unknown> | null;
+  parsed_output_json: Record<string, unknown> | null;
+  evidence_json: Record<string, unknown> | null;
+};
+
+export type BenchmarkItemPage = {
+  total: number;
+  offset: number;
+  limit: number;
+  items: BenchmarkItemRecord[];
 };
 
 export type FlywheelIteration = {

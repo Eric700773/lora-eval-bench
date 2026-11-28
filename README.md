@@ -20,7 +20,22 @@ EasyTune Eval Flywheel 是一个面向大模型评测、Benchmark 与后训练�
   → JSON / Markdown 实验报告
 ```
 
-项目已在 **RTX 4060 Laptop GPU 8GB + Python 3.12 + 本地 Qwen3.5-2B** 环境中完成无 Mock 端到端验证。
+项目已在 **RTX 4060 Laptop GPU 8GB + Python 3.12 + 本地 Qwen3.5-2B** 环境中完成无 Mock 端到端验证，通过 `lm-evaluation-harness` 官方 GSM8K Task 的 10 题完整性门禁，并完成 1,319 题 test split 全量评测。
+
+## 官方 Benchmark 接入
+
+- 固定 `lm-eval==0.4.13`、Git commit、GSM8K Task YAML SHA256 和数据集 revision；
+- 复用官方 5-shot Prompt、`generate_until`、strict/flexible filters 和 exact-match 聚合；
+- 先运行 `limit=10` 工程门禁，不把抽样结果冒充全量 Benchmark 分数；
+- 门禁通过后可启动无 `--limit` 的 1319 题 Full 模式，任务由独立 Worker 后台执行；
+- Full 模式提供 6 小时窗口、response cache 恢复、持久化进度、逐题分页和 evidence 按需读取；
+- 保存 lm-eval request、Qwen rendered prompt、完整 input token IDs、raw generated tokens/text、parser 输入输出与逐题 score；
+- 自动检查截断、重复模板、循环输出、响应对齐和框架指标重算 parity；
+- 已完成 1,319 题 Full Run：strict-match `0.4898`、flexible-extract `0.6308`；
+- Full Run 证据对齐 `1319/1319`、工程失败 `0`，框架 strict 指标与逐题重算完全一致；
+- 官方 test badcase 只允许分析，默认禁止进入训练飞轮。
+
+当前标准框架范围明确限定为 **lm-eval 的 GSM8K 生成式静态任务样板**。OpenCompass、EvalPlus、loglikelihood 和交互式 Benchmark 尚未实现。
 
 ## 核心能力
 
@@ -93,6 +108,10 @@ EasyTune Eval Flywheel 是一个面向大模型评测、Benchmark 与后训练�
 
 完整脱敏证据：
 
+- [lm-eval GSM8K 全量评测](docs/experiments/lm-eval-gsm8k-full/README.md)
+- [lm-eval 全量指标](docs/experiments/lm-eval-gsm8k-full/metrics.json)
+- [lm-eval GSM8K 工程门禁](docs/experiments/lm-eval-gsm8k-gate/README.md)
+- [lm-eval Gate 指标](docs/experiments/lm-eval-gsm8k-gate/metrics.json)
 - [实验说明](docs/experiments/qwen35-2b-flywheel/README.md)
 - [四象限指标](docs/experiments/qwen35-2b-flywheel/metrics.json)
 - [训练报告](docs/experiments/qwen35-2b-flywheel/training-report.json)
@@ -104,7 +123,10 @@ flowchart LR
     UI[Next.js Console] --> API[FastAPI Control Plane]
     API --> DB[(SQLite)]
     API --> DATA[Dataset / Reports]
-    API --> WORKER[WSL GPU Worker]
+    API --> EVALWORKER[WSL lm-eval Worker]
+    EVALWORKER --> HARNESS[lm-eval GSM8K Task]
+    HARNESS --> WORKER[OpenAI-compatible Qwen Worker]
+    API --> WORKER
     WORKER --> QWEN[Local Qwen3.5-2B]
     API --> SYNTH[DeepSeek API]
     SYNTH --> GATE[Quality + Decontamination Gates]
@@ -142,10 +164,11 @@ lora-eval-bench/
 运行组件：
 
 ```text
-Frontend:   http://127.0.0.1:3000
-Backend:    http://127.0.0.1:8000
-Swagger:    http://127.0.0.1:8000/docs
-GPU Worker: http://127.0.0.1:8011
+Frontend:       http://127.0.0.1:3000
+Backend:        http://127.0.0.1:8000
+Swagger:        http://127.0.0.1:8000/docs
+Qwen Worker:    http://127.0.0.1:8011
+lm-eval Worker: http://127.0.0.1:8012
 ```
 
 静态 Benchmark 核心请求：
@@ -169,6 +192,40 @@ GPU Worker: http://127.0.0.1:8011
 ```
 
 ## 测试
+
+### lm-eval GSM8K Gate
+
+冻结清单位于 `easytune/backend/configs/lm_eval/`。在 Qwen Worker 和 lm-eval Worker 启动后运行：
+
+```powershell
+cd easytune/backend
+.\.venv\Scripts\python.exe .\scripts\run_lm_eval_gate.py `
+  --output-dir .\app\storage\reports\lm_eval\gsm8k_gate_10
+```
+
+通过 Swagger 或 API 导入：
+
+```http
+POST /api/benchmarks/runs/import-lm-eval-gate
+Content-Type: application/json
+
+{
+  "run_directory": "gsm8k_gate_10",
+  "name": "GSM8K lm-eval Gate (limit=10)"
+}
+```
+
+完整报告包含 `results_*.json`、`samples_*.jsonl`、`normalized_result.json`、`integrity_gate.json` 和 `GATE_REPORT.md`。完整环境与启动命令见 [EasyTune 部署与复现指南](easytune/README.md)。
+
+全量模式：
+
+```http
+POST /api/benchmarks/runs/lm-eval/full
+GET  /api/benchmarks/runs/{run_id}/lm-eval/status
+POST /api/benchmarks/runs/{run_id}/lm-eval/resume
+```
+
+Full 模式不传 `--limit`，强制使用 response cache；完整 token 证据按请求保存，聚合文件只保存 hash、计数与证据路径，前端通过分页和单题按需加载控制响应体大小。
 
 后端：
 

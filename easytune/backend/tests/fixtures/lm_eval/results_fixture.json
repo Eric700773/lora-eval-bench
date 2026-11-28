@@ -1,0 +1,33 @@
+{
+  "results": {
+    "gsm8k": {
+      "name": "gsm8k",
+      "alias": "gsm8k",
+      "exact_match,strict-match": 0.5,
+      "exact_match_stderr,strict-match": 0.1,
+      "exact_match,flexible-extract": 0.5,
+      "exact_match_stderr,flexible-extract": 0.1,
+      "sample_len": 2
+    }
+  },
+  "configs": {
+    "gsm8k": {
+      "task": "gsm8k",
+      "output_type": "generate_until",
+      "num_fewshot": 5
+    }
+  },
+  "versions": {"gsm8k": 3.0},
+  "n-shot": {"gsm8k": 5},
+  "n-samples": {"gsm8k": {"original": 1319, "effective": 2}},
+  "task_hashes": {"gsm8k": "fixture-task-hash"},
+  "lm_eval_version": "0.4.13",
+  "config": {
+    "model": "local-chat-completions",
+    "limit": 2,
+    "random_seed": 42,
+    "numpy_seed": 42,
+    "torch_seed": 42,
+    "fewshot_seed": 42
+  }
+}

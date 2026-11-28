@@ -71,6 +71,111 @@ RWKV-PEFT 默认仍可使用 DeepSpeed fused optimizer；小模型 smoke 或不�
 curl http://localhost:8000/api/health
 ```
 
+## lm-evaluation-harness GSM8K Gate
+
+该接入用于验证标准 Benchmark 工程链路，不把 10 题抽样结果当作全量 GSM8K 分数。
+
+固定内容：
+
+```text
+Python: 3.12.13
+lm-eval: 0.4.13
+framework commit: ddd67220430a2470529f25fd5c05a576ca1057a0
+Task: gsm8k metadata v3.0
+Dataset revision: 740312add88f781978c0658806c59bc2815b9866
+Split / few-shot / limit: test / 5 / 10
+```
+
+冻结配置和依赖锁位于：
+
+```text
+backend/configs/lm_eval/
+```
+
+创建独立环境：
+
+```bash
+mkdir -p ~/.virtualenvs
+uv venv --python 3.12 ~/.virtualenvs/easytune-lm-eval
+uv pip install --python ~/.virtualenvs/easytune-lm-eval/bin/python "lm-eval[api]==0.4.13" pytest==8.4.2
+~/.virtualenvs/easytune-lm-eval/bin/lm-eval validate --tasks gsm8k
+```
+
+除 Qwen Worker 8011 外，再启动独立 lm-eval Worker：
+
+```powershell
+wsl.exe -d Ubuntu -- /home/<WSL_USER>/.virtualenvs/easytune-lm-eval/bin/python `
+  /mnt/<DRIVE>/<REPO_PATH>/easytune/backend/app/workers/lm_eval_wsl_worker.py `
+  --lm-eval-cli /home/<WSL_USER>/.virtualenvs/easytune-lm-eval/bin/lm-eval `
+  --allowed-output-root /mnt/<DRIVE>/<REPO_PATH>/easytune/backend/app/storage/reports/lm_eval `
+  --host 0.0.0.0 --port 8012
+```
+
+运行 10 题 Gate：
+
+```powershell
+cd easytune/backend
+.\.venv\Scripts\python.exe .\scripts\run_lm_eval_gate.py `
+  --output-dir .\app\storage\reports\lm_eval\gsm8k_gate_10
+```
+
+导入 EasyTune：
+
+```text
+POST /api/benchmarks/runs/import-lm-eval-gate
+GET  /api/benchmarks/runs/{run_id}/normalized
+GET  /api/benchmarks/runs/{run_id}/items?only_badcases=true
+```
+
+Gate 要求 10/10 样本具备完整 messages、模型实际 rendered prompt、完整 input token IDs、raw generated tokens/text、官方 filtered response 和逐题 score；同时要求无截断、无重复模板、无循环输出、Worker response 与 lm-eval raw response 一致、框架聚合指标与逐题重算一致。
+
+### GSM8K 全量模式
+
+全量模式沿用同一冻结协议，完全不传 `--limit`，已完成 test split 的 1319 题真实运行：
+
+```text
+Strict match: 0.4897649735
+Flexible extraction: 0.6307808946
+Evidence aligned: 1319/1319
+Engineering failures: 0
+Wall time: 9973.344 seconds
+```
+
+```http
+POST /api/benchmarks/runs/lm-eval/full
+Content-Type: application/json
+
+{
+  "name": "GSM8K lm-eval Full (1319 samples)",
+  "base_model": "local-qwen3.5-2b",
+  "max_new_tokens": 512
+}
+```
+
+长任务由 8012 Worker 后台执行，默认最长 6 小时。状态、恢复和取消：
+
+```text
+GET  /api/benchmarks/runs/{run_id}/lm-eval/status
+POST /api/benchmarks/runs/{run_id}/lm-eval/resume
+POST /api/benchmarks/runs/{run_id}/lm-eval/cancel
+```
+
+Full 命令强制启用 lm-eval response cache。Worker 或后端中断后，`resume` 会在同一输出目录重新提交，已缓存响应不会再次调用模型。
+
+全量证据使用两层存储：
+
+- 每请求 evidence JSON 保留完整 messages、rendered prompt、input/output token IDs 和 raw text；
+- 聚合结果与数据库只保存 hashes、token 数、证据路径、raw response、parser 和 score。
+
+逐题列表使用分页，只有打开具体题目时才读取完整 evidence：
+
+```text
+GET /api/benchmarks/runs/{run_id}/items/page?offset=0&limit=25
+GET /api/benchmarks/runs/{run_id}/items/{item_id}/evidence
+```
+
+官方 GSM8K test badcase 是 analysis-only，平台拒绝将其直接用于数据合成或 QLoRA。后续优化需要单独配置 Discovery/Dev 数据。
+
 ## Qwen3.5 评测飞轮
 
 当前验证配置：
@@ -87,7 +192,7 @@ Synthesis model: DeepSeek official deepseek-v4-pro
 
 ```powershell
 wsl.exe -d Ubuntu -- /mnt/d/interview/local-llm-validation/.venv-transformers/bin/python `
-  /mnt/c/Users/Eric/lora-eval-bench/easytune/backend/app/workers/qwen_wsl_worker.py `
+  /mnt/<DRIVE>/<REPO_PATH>/easytune/backend/app/workers/qwen_wsl_worker.py `
   --model-path /mnt/d/interview/local-llm-validation/models/qwen3.5-2b-bf16 `
   --host 0.0.0.0 --port 8011
 ```

@@ -1,14 +1,53 @@
 import argparse
 import gc
+import hashlib
 import json
 import time
+from datetime import UTC, datetime
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
+from uuid import uuid4
 
 
 MODEL_PATH: Path
+EVIDENCE_DIR: Path
+MODEL_ID = "local-qwen3.5-2b"
 MODEL_CACHE: dict[tuple[bool, str], tuple[Any, Any]] = {}
+
+
+def sha256_text(value: str) -> str:
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def sha256_token_ids(token_ids: list[int]) -> str:
+    return hashlib.sha256(json.dumps(token_ids, separators=(",", ":")).encode("utf-8")).hexdigest()
+
+
+def write_evidence(record: dict[str, Any]) -> str:
+    EVIDENCE_DIR.mkdir(parents=True, exist_ok=True)
+    path = EVIDENCE_DIR / f"{record['request_id']}.json"
+    temporary = path.with_suffix(".json.tmp")
+    temporary.write_text(json.dumps(record, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    temporary.replace(path)
+    return str(path)
+
+
+def detect_repetition(text: str) -> dict[str, Any]:
+    normalized = " ".join(text.split())
+    tokens = normalized.split()
+    if len(tokens) < 16:
+        return {"detected": False, "max_repeated_ngram": 0, "repeated_line": False}
+    counts: dict[tuple[str, ...], int] = {}
+    ngram_size = 8
+    for index in range(len(tokens) - ngram_size + 1):
+        ngram = tuple(tokens[index : index + ngram_size])
+        counts[ngram] = counts.get(ngram, 0) + 1
+    max_repeat = max(counts.values(), default=0)
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    repeated_line = len(lines) != len(set(lines)) if lines else False
+    return {"detected": max_repeat >= 4 or repeated_line, "max_repeated_ngram": max_repeat, "repeated_line": repeated_line}
 
 
 def get_inference_model(load_in_4bit: bool, adapter_path: str | None = None) -> tuple[Any, Any]:
@@ -73,7 +112,98 @@ def runtime_health() -> dict[str, Any]:
         "model_exists": MODEL_PATH.exists(),
         "model_type": model_config.model_type,
         "architectures": model_config.architectures,
+        "openai_api": {"models": "/v1/models", "chat_completions": "/v1/chat/completions"},
+        "evidence_dir": str(EVIDENCE_DIR),
     }
+
+
+def create_chat_completion(payload: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+    import torch
+
+    if not torch.cuda.is_available():
+        raise RuntimeError("CUDA is unavailable")
+    if payload.get("stream"):
+        raise ValueError("Streaming is not supported by this evaluation worker.")
+    if int(payload.get("n", 1)) != 1:
+        raise ValueError("Only n=1 is supported by this evaluation worker.")
+    messages = payload.get("messages")
+    if not isinstance(messages, list) or not messages:
+        raise ValueError("messages must be a non-empty list")
+    normalized_messages: list[dict[str, str]] = []
+    for message in messages:
+        if not isinstance(message, dict):
+            raise ValueError("Each message must be an object.")
+        role = str(message.get("role") or "").strip()
+        content = message.get("content")
+        if role not in {"system", "user", "assistant"} or not isinstance(content, str):
+            raise ValueError("Only string system/user/assistant messages are supported.")
+        normalized_messages.append({"role": role, "content": content})
+
+    request_id = str(payload.get("evidence_request_id") or f"chatcmpl-{uuid4().hex}")
+    max_tokens = int(payload.get("max_tokens") or payload.get("max_new_tokens") or 512)
+    temperature = float(payload.get("temperature", 0.0) or 0.0)
+    top_p = float(payload.get("top_p", 1.0) or 1.0)
+    seed = int(payload.get("seed", 42) or 42)
+    load_in_4bit = bool(payload.get("load_in_4bit", True))
+    adapter_path = str(payload.get("adapter_path") or "").strip() or None
+    enable_thinking = bool(payload.get("enable_thinking", False) or (payload.get("chat_template_kwargs") or {}).get("enable_thinking", False))
+    stop = payload.get("stop") or []
+    stop_sequences = [stop] if isinstance(stop, str) else [str(item) for item in stop]
+
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    torch.cuda.reset_peak_memory_stats()
+    tokenizer, model = get_inference_model(load_in_4bit, adapter_path)
+    rendered_prompt = tokenizer.apply_chat_template(normalized_messages, tokenize=False, add_generation_prompt=True, enable_thinking=enable_thinking)
+    encoded = tokenizer(rendered_prompt, add_special_tokens=False, return_tensors="pt")
+    input_ids = encoded["input_ids"].to("cuda")
+    attention_mask = encoded.get("attention_mask")
+    if attention_mask is not None:
+        attention_mask = attention_mask.to("cuda")
+    input_ids_list = input_ids[0].tolist()
+    roundtrip_text = tokenizer.decode(input_ids_list, skip_special_tokens=False)
+    model_context = getattr(getattr(model.config, "text_config", model.config), "max_position_embeddings", None)
+    if model_context and len(input_ids_list) + max_tokens > int(model_context):
+        raise ValueError(f"Prompt plus generation exceeds model context: {len(input_ids_list)} + {max_tokens} > {model_context}")
+
+    generation_kwargs: dict[str, Any] = {"input_ids": input_ids, "attention_mask": attention_mask, "do_sample": temperature > 0, "max_new_tokens": max_tokens, "pad_token_id": tokenizer.pad_token_id, "eos_token_id": tokenizer.eos_token_id}
+    if temperature > 0:
+        generation_kwargs["temperature"] = temperature
+        generation_kwargs["top_p"] = top_p
+    started = time.perf_counter()
+    with torch.inference_mode():
+        output_ids = model.generate(**generation_kwargs)
+    elapsed = time.perf_counter() - started
+    generated_ids = output_ids[0, input_ids.shape[1] :].tolist()
+    raw_generated_text = tokenizer.decode(generated_ids, skip_special_tokens=False)
+    content = tokenizer.decode(generated_ids, skip_special_tokens=True).strip()
+    eos_values = tokenizer.eos_token_id if isinstance(tokenizer.eos_token_id, list) else [tokenizer.eos_token_id]
+    finish_reason = "stop" if generated_ids and generated_ids[-1] in set(eos_values) else "length"
+    matched_stop: str | None = None
+    for sequence in stop_sequences:
+        position = content.find(sequence)
+        if position >= 0:
+            content = content[:position].rstrip()
+            matched_stop = sequence
+            finish_reason = "stop"
+            break
+
+    nested_markers = any("<|im_start|>" in message["content"] or "<|im_end|>" in message["content"] for message in normalized_messages)
+    response = {"id": request_id, "object": "chat.completion", "created": int(time.time()), "model": str(payload.get("model") or MODEL_ID), "choices": [{"index": 0, "finish_reason": finish_reason, "message": {"role": "assistant", "content": content}}], "usage": {"prompt_tokens": len(input_ids_list), "completion_tokens": len(generated_ids), "total_tokens": len(input_ids_list) + len(generated_ids)}}
+    evidence = {
+        "schema_version": 1,
+        "request_id": request_id,
+        "timestamp_utc": datetime.now(UTC).isoformat(),
+        "model": {"id": MODEL_ID, "path_local_only": str(MODEL_PATH), "load_in_4bit": load_in_4bit, "adapter_path_local_only": adapter_path},
+        "api_request": {"messages": normalized_messages, "temperature": temperature, "top_p": top_p, "max_tokens": max_tokens, "seed": seed, "stop": stop_sequences, "enable_thinking": enable_thinking},
+        "model_input": {"rendered_prompt": rendered_prompt, "rendered_prompt_sha256": sha256_text(rendered_prompt), "chat_template_sha256": sha256_text(tokenizer.chat_template or ""), "prompt_tokens": len(input_ids_list), "input_ids": input_ids_list, "input_ids_sha256": sha256_token_ids(input_ids_list), "input_ids_head": input_ids_list[:16], "input_ids_tail": input_ids_list[-16:], "truncated": False, "model_context_length": model_context, "context_exceeded": False, "nested_chat_template_detected": nested_markers, "render_token_roundtrip_matched": tokenizer.encode(rendered_prompt, add_special_tokens=False) == input_ids_list, "decoded_input_with_special_tokens": roundtrip_text},
+        "model_output": {"raw_generated_token_ids": generated_ids, "raw_generated_token_ids_sha256": sha256_token_ids(generated_ids), "raw_generated_text": raw_generated_text, "raw_generated_text_sha256": sha256_text(raw_generated_text), "content": content, "content_sha256": sha256_text(content), "finish_reason": finish_reason, "matched_stop_sequence": matched_stop, "repetition_diagnostic": detect_repetition(content)},
+        "runtime": {"elapsed_seconds": round(elapsed, 3), "peak_gpu_memory_bytes": int(torch.cuda.max_memory_allocated()), "gpu": torch.cuda.get_device_name(0)},
+        "response": response,
+    }
+    evidence_path = write_evidence(evidence)
+    response["evidence"] = {"request_id": request_id, "path": evidence_path, "rendered_prompt_sha256": evidence["model_input"]["rendered_prompt_sha256"], "content_sha256": evidence["model_output"]["content_sha256"]}
+    return response, evidence
 
 
 def inference_smoke(payload: dict[str, Any]) -> dict[str, Any]:
@@ -360,24 +490,56 @@ def qlora_smoke(payload: dict[str, Any]) -> dict[str, Any]:
 
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
-        if self.path != "/health":
-            self._send(404, {"detail": "Not found"})
+        path = urlparse(self.path).path
+        if path == "/health":
+            self._execute(runtime_health)
             return
-        self._execute(runtime_health)
+        if path == "/v1/models":
+            self._send(
+                200,
+                {
+                    "object": "list",
+                    "data": [
+                        {
+                            "id": MODEL_ID,
+                            "object": "model",
+                            "created": 0,
+                            "owned_by": "easytune-local",
+                        }
+                    ],
+                },
+            )
+            return
+        if path.startswith("/evidence/"):
+            request_id = path.removeprefix("/evidence/").strip()
+            if not request_id or any(character not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_" for character in request_id):
+                self._send(400, {"detail": "Invalid evidence request ID"})
+                return
+            evidence_path = EVIDENCE_DIR / f"{request_id}.json"
+            if not evidence_path.exists():
+                self._send(404, {"detail": "Evidence not found"})
+                return
+            self._send(200, json.loads(evidence_path.read_text(encoding="utf-8")))
+            return
+        self._send(404, {"detail": "Not found"})
 
     def do_POST(self) -> None:
+        path = urlparse(self.path).path
         length = int(self.headers.get("Content-Length", "0"))
         payload = json.loads(self.rfile.read(length) or b"{}")
-        if self.path == "/release":
+        if path == "/v1/chat/completions":
+            self._execute(lambda: create_chat_completion(payload)[0])
+            return
+        if path == "/release":
             self._execute(release_models)
             return
-        if self.path == "/infer":
+        if path == "/infer":
             self._execute(lambda: inference_smoke(payload))
             return
-        if self.path == "/qlora-train":
+        if path == "/qlora-train":
             self._execute(lambda: qlora_train(payload))
             return
-        if self.path == "/qlora-smoke":
+        if path == "/qlora-smoke":
             self._execute(lambda: qlora_smoke(payload))
             return
         self._send(404, {"detail": "Not found"})
@@ -405,13 +567,16 @@ def main() -> int:
     parser.add_argument("--model-path", type=Path, required=True)
     parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--port", type=int, default=8011)
+    parser.add_argument("--evidence-dir", type=Path, default=None)
     args = parser.parse_args()
-    global MODEL_PATH
+    global MODEL_PATH, EVIDENCE_DIR
     MODEL_PATH = args.model_path.resolve()
+    EVIDENCE_DIR = (args.evidence_dir or (Path(__file__).resolve().parents[1] / "storage" / "reports" / "worker_evidence")).resolve()
     if not MODEL_PATH.exists():
         raise FileNotFoundError(MODEL_PATH)
+    EVIDENCE_DIR.mkdir(parents=True, exist_ok=True)
     server = HTTPServer((args.host, args.port), Handler)
-    print(json.dumps({"status": "ready", "host": args.host, "port": args.port, "model_path": str(MODEL_PATH)}, ensure_ascii=False), flush=True)
+    print(json.dumps({"status": "ready", "host": args.host, "port": args.port, "model_id": MODEL_ID, "model_path": str(MODEL_PATH), "evidence_dir": str(EVIDENCE_DIR)}, ensure_ascii=False), flush=True)
     server.serve_forever()
     return 0
 
